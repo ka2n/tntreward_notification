@@ -1,22 +1,31 @@
 #/usr/bin/python3
 
+import argparse
 import requests
 import random
 
 #####################################################################################
 
-etherscan_api = ''
-linenotify_token = ''
-balance_notify = 1  #{0:no TNT balance notify, 1:elected address only, 2:all address}
-notify_pattern = 1  #{0:win only, 1:win and lose}
-line_stamp = 1  #{0:no Line stamp, 1:Line stamp will be sent with notify}
-filename = '/home/[username]/tntreward_notification/nodelist.txt'
+options = argparse.ArgumentParser()
+options.add_argument('--etherscan-token', required=True)
+options.add_argument('--line-token', required=True)
+options.add_argument('--balance-notify', default='elected', choices=['no', 'elected', 'all'])
+options.add_argument('--notify-pattern', default='winlose', choices=['win', 'winlose'])
+options.add_argument('--nodes', type=argparse.FileType('r'), required=True)
+options.add_argument('--line-stamp', default=True)
+
+# etherscan_api = ''
+# linenotify_token = ''
+# balance_notify = 1  #{0:no TNT balance notify, 1:elected address only, 2:all address}
+# notify_pattern = 1  #{0:win only, 1:win and lose}
+# line_stamp = 1  #{0:no Line stamp, 1:Line stamp will be sent with notify}
+# filename = '/home/[username]/tntreward_notification/nodelist.txt'
 
 #####################################################################################
 
 tnt_balances = []
-contact_address = '0x08f5a9235b08173b7569f83645d2c7fb55e8ccd8'
-tntreword_address = '0xddfff2b78463ab1ca781e853bb888fdfd06083d3'
+CONTACT_ADDRESS = '0x08f5a9235b08173b7569f83645d2c7fb55e8ccd8'
+TNTREWORD_ADDRESS = '0xddfff2b78463ab1ca781e853bb888fdfd06083d3'
 
 PREFIX = 'https://api.etherscan.io/api?'
 MODULE = 'module='
@@ -30,13 +39,10 @@ BLOCKNO = '&blockno='
 TAG = '&tag='
 API_KEY = '&apikey='
 
-def get_nodelist(filename):
-
+def get_nodelist(file):
     """Get node addresses from txt file"""
 
-    file = open(filename)
-    nodelist = file.readlines() 
-    file.close()
+    nodelist = [l.rstrip() for l in file.readlines()]
 
     nodenames = []
     nodeaddresses = []
@@ -97,23 +103,22 @@ def get_elected_address(etherscan_api, tntreword_address):
 
     return elected_address
 
-def line_notify(elected_address, nodeaddresses):
+def line_notify(elected_address, nodeaddresses, nodenames, line_token, line_stamp=True, balance_notify='elected'):
 
     """Notify win or lose using LINE Notify"""
 
     url = "https://notify-api.line.me/api/notify"
-    token = linenotify_token
-    headers = {"Authorization" : "Bearer "+ token}
+    headers = {"Authorization" : "Bearer "+ line_token}
 
     if elected_address in nodeaddresses:
 
         elected_nodename = nodenames[nodeaddresses.index(elected_address)]
 
-        if balance_notify == 0:
+        if balance_notify is 'no':
             message = elected_nodename + ' Winner!'
 
-        elif balance_notify == 1:
-            get_tnt_balance(etherscan_api, elected_address, contact_address)
+        elif balance_notify is 'elected':
+            get_tnt_balance(etherscan_api, elected_address, CONTACT_ADDRESS)
             balance = tnt_balances[nodeaddresses.index(elected_address)]
             message = elected_nodename + ' Winner! Now ' + elected_nodename \
                       + ' has ' + str(balance) + ' TNT!'
@@ -121,7 +126,7 @@ def line_notify(elected_address, nodeaddresses):
         else:
             balance = ['\n']
             for target_address in nodeaddresses:
-                get_tnt_balance(etherscan_api, target_address, contact_address)
+                get_tnt_balance(etherscan_api, target_address, CONTACT_ADDRESS)
 
             for i in range(len(nodeaddresses)):
                 balance.append(nodenames[i] + ' ' + str(tnt_balances[i]) + ' TNT' + '\n')
@@ -129,7 +134,7 @@ def line_notify(elected_address, nodeaddresses):
             message = elected_nodename + ' Winner!' + ''.join(balance) \
                       + 'total: ' + str(sum(tnt_balances)) + ' TNT'
 
-        if line_stamp == 0:
+        if not line_stamp:
 
             payload = {"message":message}
 
@@ -151,13 +156,13 @@ def line_notify(elected_address, nodeaddresses):
 
         message_lose = 'You lost this time...'
 
-        if line_stamp == 0 and notify_pattern == 1:
+        if not line_stamp and notify_pattern is 'winlose':
 
             payload = {"message":message_lose}
 
             r = requests.post(url ,headers=headers ,params=payload)
 
-        elif line_stamp == 1 and notify_pattern == 1:
+        elif line_stamp and notify_pattern is 'winlose':
 
             stamp_num = [[1,3],[1,7],[1,8],[1,9],[1,16],[1,17],[1,21],[1,102],\
                          [1,104],[1,105],[1,108],[1,111],[1,112],[1,113],[1,118],\
@@ -173,10 +178,12 @@ def line_notify(elected_address, nodeaddresses):
 
             r = requests.post(url ,headers=headers ,params=payload)
 
+def main(opt):
+    with opt.nodes as f:
+        nodenames, nodeaddresses = get_nodelist(f)
+    elected_address = get_elected_address(opt.etherscan_token, TNTREWORD_ADDRESS)
+    line_notify(elected_address, nodeaddresses, opt.line_token, line_stamp=opt.line_stamp)
+    exit(0)
 
-nodenames, nodeaddresses = get_nodelist(filename)
-elected_address = get_elected_address(etherscan_api, tntreword_address)
-line_notify(elected_address, nodeaddresses)
-
-exit
-
+if __name__ == '__main__':
+    main(options.parse_args())
